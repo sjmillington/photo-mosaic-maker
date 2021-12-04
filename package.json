@@ -1,0 +1,17 @@
+{
+  "name": "secret_2021",
+  "version": "1.0.0",
+  "description": "********",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "keywords": [
+    "mysupersecretproject"
+  ],
+  "author": "ME",
+  "license": "ISC",
+  "dependencies": {
+    "jimp": "^0.16.1"
+  }
+}
