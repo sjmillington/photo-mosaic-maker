@@ -6,12 +6,16 @@
   "scripts": {
     "test": "test"
   },
+  "bin": {
+    "fotoso": "./index.js"
+  },
   "keywords": [
     "mysupersecretproject"
   ],
   "author": "ME",
   "license": "ISC",
   "dependencies": {
-    "jimp": "^0.16.1"
+    "jimp": "^0.16.1",
+    "yargs": "^17.3.0"
   }
 }

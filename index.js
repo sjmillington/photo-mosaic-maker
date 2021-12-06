@@ -1,137 +1,100 @@
-const fs = require('fs')
-const Jimp = require('jimp')
+const fs = require('fs');
+const { buildTileImageHashes, buildPhotoMosaic, getImageSize } = require('./src/utils')
+const { MATCH_STYLE_CLOSEST, MATCH_STYLE_RANDOM } = require('./src/matchStyles')
 
-const tilesWidth = 24
-const tilesHeight = 24
-const imageDirectory =  './big_set'
-const baseImg = './IMG_2886.jpeg'
-const resizedDir = `./resized-${tilesWidth}-${tilesHeight}`
+const doTheMosaic = ({ baseImg, imageDirectory, tilesHeight, tilesWidth, keepResized, outPath, matchStyle, tileOpacity, baseOpacity }) => {
+    const resizedDir = `./resized/resized-${tilesWidth}-${tilesHeight}`
 
-const imageHashes = {}
-const resizedImages = {}
-
-let width = 4032;
-let height = 3024;
-
-function replaceTileRandom (cropped) {
-    const croppedHash = cropped.hash()
-
-    let minDistance = 1;
-    let fileName = ''
-
-    const fileNames = Object.keys(imageHashes)
-    const index = Math.floor(Math.random() * fileNames.length)
-
-    return fileNames[index];
-}
-
-function replaceTile (cropped) {
-    const croppedHash = cropped.hash()
-
-    let minDistance = 1;
-    let fileName = ''
-
-    for(let name of Object.keys(imageHashes)) {
-        const distance = Jimp.compareHashes(croppedHash, imageHashes[name])
-
-        if(distance < minDistance) {
-            minDistance = distance
-            fileName = name
-        }
-    }
-
-    return fileName;
-}
-
-const filenames = fs.readdirSync(imageDirectory)
-
-const hashPromises = []
-filenames.forEach(name => {
-    console.log(name)
-    if(!name.startsWith('.')) {
-
-        let promise;
-        const resizedPath = `${resizedDir}/${name}`
-        if(fs.existsSync(resizedPath)) {
-            console.log(resizedPath)
-            promise = Jimp.read(resizedPath)
-                .then(img => {
-                    resizedImages[name] = resizedPath 
-                    imageHashes[name] = img.hash()
-                }).catch(err => {
-                    console.log(err.message)
-                })    
-        } else {
-            promise = Jimp.read(`${imageDirectory}/${name}`)
-                .then(img => {
-                    
-                    resizedImages[name] = resizedPath 
-
-                    let resized = img.resize(width/tilesWidth, height/tilesHeight)
-                    resized.write(resizedPath)
-                    
-                    imageHashes[name] = resized.hash()
-                    
-                })
-                .catch(error => {
-                    console.log(error)
-                    console.log(name)
-                })
-        }    
-
-        hashPromises.push(promise)
-        
-    }
-   
-})
-
-Promise.all(hashPromises).then(() => {
-
-    Jimp.read(baseImg)
-        .then(image => {
-
-            const maskPromises = []
-
-            const outputImage = image.clone()
-
-            const widthInterval = Math.floor(image.bitmap.width / tilesWidth);
-            const heightInterval = Math.floor(image.bitmap.height / tilesHeight);
-            
-            for(let i = 0; i < tilesWidth; i++) {
-                const startPosX = i * widthInterval;
-
-                for(let j = 0; j < tilesHeight; j++) {
-                    const startPosY = j * heightInterval;
-
-                    const cropped = image.clone().crop(startPosX, startPosY, widthInterval, heightInterval)
-
-                    if(cropped) {
-                        const replacementFileName = replaceTile(cropped)
-    
-                        maskPromises.push(
-                            Jimp.read(`${resizedDir}/${replacementFileName}`)
-                            .then(resizedImage => {  
-                                outputImage.composite(resizedImage, startPosX, startPosY, {
-                                    ode: Jimp.BLEND_SOURCE_OVER,
-                                    opacityDest: 1,
-                                    opacitySource: 0.4
-                                  })
-                            })
-                        )
-                    }
-                
+    getImageSize(baseImg).then(({ width, height }) => {
+        buildTileImageHashes(imageDirectory, resizedDir, width, height, tilesWidth, tilesHeight)
+        .then(({ imageHashes }) => {
+            buildPhotoMosaic(baseImg, outPath, tilesWidth, tilesHeight, imageHashes, resizedDir, matchStyle, tileOpacity, baseOpacity ).finally(() => {
+                if(!keepResized) {
+                    fs.rmdirSync(resizedDir, { recursive: true })
                 }
-            }
-
-            Promise.all(maskPromises).then(() => {
-                outputImage.write('./out/full.jpg')
             })
-     
         })
+    })
 
-})
+}
 
+require('yargs')
+  .scriptName("foto")
+  .usage('$0 <cmd> [args]')
+  .command('mosaic', 'welcome ter the photo mosaic maker!', (yargs) => {
+    yargs.option('image-dir', {
+      type: 'string',
+      describe: 'the directory containing your image tiles',
+      demandOption: true
+    })
 
+    yargs.option('base-img', {
+        type: 'string',
+        describe: 'the base image to be overlaid',
+        demandOption: true
+    })
 
+    yargs.option('tiles-wide', {
+        type: 'number',
+        describe: 'How many images across the image',
+        default: 24
+    })
+
+    yargs.option('tiles-high', {
+        type: 'number',
+        describe: 'How many images up the image',
+        default: 24
+    })
+
+    yargs.option('out-path', {
+        type: 'string',
+        describe: 'Output path (including file name) of the mosaic',
+        default: './out/mosaic.png'
+    })
+
+    yargs.option('keep-resized-images', {
+        type: 'boolean',
+        describe: 'Keeps the resized tiles to speed up subsequent runs. Default location: ./resized/resized-{height}-{width}',
+        default: false
+    })
+
+    yargs.option('overlay-style', {
+        type: 'string',
+        describe: 'Chooses which method to overlay each tile. `closest-match` will compare each tile-sized patch for image to the image tiles by hash-code to get the closest match. `random` will do it randomly..',
+        default: MATCH_STYLE_CLOSEST,
+        choices: [MATCH_STYLE_CLOSEST, MATCH_STYLE_RANDOM]
+    })
+
+    yargs.option('tile-opacity', {
+        type: 'number',
+        describe: 'Opacity of the tile image', 
+        default: 0.4
+    })
+    
+    yargs.option('base-opacity', {
+        type: 'number',
+        describe: 'Opacity of the base image', 
+        default: 1
+    })
+
+  }, function (argv) {
+      const baseImg = argv['base-img']
+      const imageDirectory = argv['image-dir']
+      const outPath = argv['out-path']
+      
+      const tilesWidth = argv['tiles-wide']
+      const tilesHeight = argv['tiles-high']
+
+      const keepResized = argv['keep-resized-images']
+      const matchStyle = argv['overlay-style']
+
+      const tileOpacity = argv['tile-opacity']
+      const baseOpacity = argv['base-opacity']
+
+      doTheMosaic({ baseImg, imageDirectory, tilesHeight, tilesWidth, keepResized, matchStyle, outPath, tileOpacity, baseOpacity })
+  })
+
+  .help()
+  .argv
 
 
