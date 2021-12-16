@@ -1,4 +1,4 @@
-# PhotoMosaic For So `FotoMoFoSo?` 
+# PhotoMosaic For Sofi, para navidad. 🎄🎅
 
 A photo mosaic maker using `Jimp`. 
 
